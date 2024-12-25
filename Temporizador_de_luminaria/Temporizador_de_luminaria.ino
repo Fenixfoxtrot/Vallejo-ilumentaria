@@ -34,7 +34,7 @@ String getHTML() {
   html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
   html += "<title>Panel de Control Focos Col. Vallejo</title>";
   html += "<style>";
-  html += "body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background-image: url('img/lldm_vallejo_iluminado.jpg'); background-size: cover; background-position: center; background-repeat: no-repeat; height: 100vh; margin: 0; color: #333; }";
+  html += "body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background-image: url('../img/lldm_vallejo_iluminado.jpg'); background-size: cover; background-position: center; background-repeat: no-repeat; height: 100vh; margin: 0; color: #333; }";
   html += ".title-container { background-color: rgba(128, 128, 128, 0.4); padding: 20px; border-radius: 5px; margin-bottom: 40px; }";
   html += "h1 { color: #ffffff; margin: 0; }";
   html += ".button-panel { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; justify-content: center; }";
