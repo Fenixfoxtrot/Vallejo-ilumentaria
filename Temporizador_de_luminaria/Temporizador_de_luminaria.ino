@@ -11,14 +11,13 @@ ESP8266WebServer server(80);
 const int relayPins[] = {16, 5, 4, 2, 14, 12, 13, 15}; // GPIO16, GPIO5, GPIO4, etc.
 bool relayStates[8] = {false, false, false, false, false, false, false, false}; // Estados iniciales de los relés
 
-// Variables para manejar la hora de encendido y apagado
+// Variables para manejar la hora de encendido y apagado (hora, minuto, segundo)
 int hourOn = 6;     // Hora de encendido por defecto (6:00 AM)
 int minuteOn = 0;   // Minuto de encendido por defecto
+int secondOn = 0;   // Segundo de encendido por defecto
 int hourOff = 22;   // Hora de apagado por defecto (10:00 PM)
 int minuteOff = 0;  // Minuto de apagado por defecto
-
-// Variables para evitar imprimir varias veces la hora de apagado
-bool lightsTurnedOff = false;  // Para evitar imprimir varias veces la hora de apagado
+int secondOff = 0;  // Segundo de apagado por defecto
 
 // Credenciales Wi-Fi
 const char* ssid = "INFINITUM1ABB";       // Cambia por tu SSID
@@ -32,7 +31,7 @@ NTPClient timeClient(udp, "pool.ntp.org", 0, 60000); // UTC sin ajuste para la z
 String getHTML() {
   String html = "<!DOCTYPE html><html lang='es'><head>";
   html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<title>Panel de Control Focos Col. Vallejo</title>";
+  html += "<title>Panel de Control luminaria Col. Vallejo</title>";
   html += "<style>";
   html += "body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background-image: url('../img/lldm_vallejo_iluminado.jpg'); background-size: cover; background-position: center; background-repeat: no-repeat; height: 100vh; margin: 0; color: #333; }";
   html += ".title-container { background-color: rgba(128, 128, 128, 0.4); padding: 20px; border-radius: 5px; margin-bottom: 40px; }";
@@ -55,14 +54,16 @@ String getHTML() {
   }
   html += "</div>";
 
-  // Formulario para configurar horarios
+  // Formulario para configurar horarios (hora, minuto, segundo)
   html += "<div class='form-container'>";
   html += "<h2>Configurar Horarios de Encendido/Apagado</h2>";
   html += "<form action='/setTime' method='get'>";
   html += "<label>Hora Encendido:</label><input type='number' name='hourOn' value='" + String(hourOn) + "' min='0' max='23' required>";
-  html += "<label>Minuto Encendido:</label><input type='number' name='minuteOn' value='" + String(minuteOn) + "' min='0' max='59' required><br>";
+  html += "<label>Minuto Encendido:</label><input type='number' name='minuteOn' value='" + String(minuteOn) + "' min='0' max='59' required>";
+  html += "<label>Segundo Encendido:</label><input type='number' name='secondOn' value='" + String(secondOn) + "' min='0' max='59' required><br>";
   html += "<label>Hora Apagado:</label><input type='number' name='hourOff' value='" + String(hourOff) + "' min='0' max='23' required>";
-  html += "<label>Minuto Apagado:</label><input type='number' name='minuteOff' value='" + String(minuteOff) + "' min='0' max='59' required><br>";
+  html += "<label>Minuto Apagado:</label><input type='number' name='minuteOff' value='" + String(minuteOff) + "' min='0' max='59' required>";
+  html += "<label>Segundo Apagado:</label><input type='number' name='secondOff' value='" + String(secondOff) + "' min='0' max='59' required><br>";
   html += "<button type='submit'>Guardar</button>";
   html += "</form>";
   html += "</div>";
@@ -102,11 +103,17 @@ void handleSetTime() {
   if (server.hasArg("minuteOn")) {
     minuteOn = server.arg("minuteOn").toInt();
   }
+  if (server.hasArg("secondOn")) {
+    secondOn = server.arg("secondOn").toInt();
+  }
   if (server.hasArg("hourOff")) {
     hourOff = server.arg("hourOff").toInt();
   }
   if (server.hasArg("minuteOff")) {
     minuteOff = server.arg("minuteOff").toInt();
+  }
+  if (server.hasArg("secondOff")) {
+    secondOff = server.arg("secondOff").toInt();
   }
   
   server.send(200, "text/html", "<h2>Horarios actualizados. <a href='/'>Regresar</a></h2>");
@@ -140,7 +147,7 @@ void setup() {
   // Configuración del servidor web
   server.on("/", handleRoot);  // Página principal
   server.on("/toggle", handleToggleRelay);  // Control manual de relés
-  server.on("/setTime", handleSetTime);  // Configuración de horarios
+  server.on("/setTime", handleSetTime);  // Manejo de la configuración de la hora
   server.begin();
 }
 
@@ -149,28 +156,29 @@ void loop() {
   timeClient.update();
   int currentHour = timeClient.getHours();
   int currentMinute = timeClient.getMinutes();
+  int currentSecond = timeClient.getSeconds(); // Obtener los segundos actuales
 
   // Ajuste de hora para zona horaria de Ciudad de México (UTC -6)
   currentHour = (currentHour - 6) % 24; 
 
-  // Controla los relés según la hora configurada
-  if (currentHour == hourOn && currentMinute == minuteOn) {
-    for (int i = 0; i < 8; i++) {
-      if (!relayStates[i]) {  // Si el relé está apagado, encenderlo
-        relayStates[i] = true;
-        digitalWrite(relayPins[i], LOW); 
+  // Verificar si es el segundo exacto 00
+  if (currentSecond == 0) {
+    // Controla los relés según la hora configurada
+    if (currentHour == hourOn && currentMinute == minuteOn && currentSecond == secondOn) {
+      for (int i = 0; i < 8; i++) {
+        if (!relayStates[i]) {  // Si el relé está apagado, encenderlo
+          relayStates[i] = true;
+          digitalWrite(relayPins[i], LOW); 
+        }
+      }
+    } else if (currentHour == hourOff && currentMinute == minuteOff && currentSecond == secondOff) {
+      for (int i = 0; i < 8; i++) {
+        if (relayStates[i]) {  // Si el relé está encendido, apagarlo
+          relayStates[i] = false;
+          digitalWrite(relayPins[i], HIGH);
+        }
       }
     }
-  } else if (currentHour == hourOff && currentMinute == minuteOff && !lightsTurnedOff) {
-    for (int i = 0; i < 8; i++) {
-      if (relayStates[i]) {  // Si el relé está encendido, apagarlo
-        relayStates[i] = false;
-        digitalWrite(relayPins[i], HIGH);
-      }
-    }
-    lightsTurnedOff = true;
-  } else if (currentHour != hourOff || currentMinute != minuteOff) {
-    lightsTurnedOff = false;
   }
 
   server.handleClient();
