@@ -3,6 +3,12 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <TimeLib.h>
+#include <DHT.h>
+
+#define DHTPIN 10     // Pin donde está conectado el sensor DHT11
+#define DHTTYPE DHT11 // Tipo de sensor (DHT11)
+
+DHT dht(DHTPIN, DHTTYPE);  // Instancia del sensor DHT
 
 // Configuración del servidor web
 ESP8266WebServer server(80);
@@ -25,7 +31,11 @@ const char* password = "ecykj4tDxu"; // Cambia por tu contraseña
 
 // Configuración de NTP para sincronización horaria (hora estándar de la Ciudad de México: UTC -6)
 WiFiUDP udp;
-NTPClient timeClient(udp, "pool.ntp.org", 0, 60000); // UTC sin ajuste para la zona horaria
+NTPClient timeClient(udp, "pool.ntp.org", -21600, 60000); // UTC -6, que equivale a -21600 segundos (6 horas)
+
+// Variables de lectura del sensor DHT
+float humidity = 0;
+float temperature = 0;
 
 // Página HTML con formulario para cambiar horarios
 String getHTML() {
@@ -37,24 +47,38 @@ String getHTML() {
   html += ".title-container { background-color: rgba(128, 128, 128, 0.4); padding: 20px; border-radius: 5px; margin-bottom: 40px; }";
   html += "h1 { color: #ffffff; margin: 0; }";
   html += ".button-panel { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; justify-content: center; }";
-  html += "button { padding: 10px; font-size: 18px; border: none; cursor: pointer; border-radius: 5px; transition: background-color 0.3s, transform 0.3s; opacity: 0.7; }";
+  html += "button { padding: 10px 30px; font-size: 18px; border: none; cursor: pointer; border-radius: 5px; transition: background-color 0.3s, transform 0.3s; opacity: 0.7; }";
   html += "button:hover { transform: scale(1.05); opacity: 1; }";
   html += ".on { background-color: green; color: white; }";
   html += ".off { background-color: red; color: white; }";
   html += ".form-container { margin-top: 40px; }";
   html += "input { padding: 8px; font-size: 16px; margin: 5px; }";
+  html += ".button-container { display: flex; justify-content: space-between; margin-top: 40px; }";
+  html += ".button-container button { width: 45%; }";  // Hacer los botones más grandes y rectangulares
+  html += ".sensor-container { margin-top: 20px; display: flex; justify-content: center; align-items: center; gap: 20px; }";
+  html += ".sensor-container h3 { margin: 0; }";
+  html += ".end-container { margin-top: 40px; display: flex; justify-content: space-between; }";  // Botones de encender y apagar
   html += "</style>";
   html += "</head><body>";
 
   html += "<div class='title-container'><h1>Panel de Control Focos Col. Vallejo</h1></div>";
-  
+
+  // Mostrar la hora de CDMX en formato HH:mm:ss
+  html += "<div><h2>Hora actual: " + String(hour()) + ":" + String(minute()) + ":" + String(second()) + "</h2></div>";
+
   html += "<div class='button-panel'>";
   for (int i = 0; i < 8; i++) {
     html += "<button id='relay" + String(i) + "' class='" + (relayStates[i] ? "on" : "off") + "' onclick='toggleRelay(" + String(i) + ")'>Foco " + String(i + 1) + "</button>";
   }
   html += "</div>";
 
-  // Formulario para configurar horarios (hora, minuto, segundo)
+  // Mostrar temperatura y humedad por encima de los botones de "Encender" y "Apagar"
+  html += "<div class='sensor-container'>";
+  html += "<h3>Temperatura: " + String(temperature) + " &#8451;</h3>";
+  html += "<h3>Humedad: " + String(humidity) + " %</h3>";
+  html += "</div>";
+
+  // Configuración de horarios
   html += "<div class='form-container'>";
   html += "<h2>Configurar Horarios de Encendido/Apagado</h2>";
   html += "<form action='/setTime' method='get'>";
@@ -68,11 +92,23 @@ String getHTML() {
   html += "</form>";
   html += "</div>";
 
+  // Botones para encender y apagar todos los relés a los lados de los horarios
+  html += "<div class='end-container'>";
+  html += "<button onclick='toggleAllRelays(true)' class='on'>Encender Todos</button>";
+  html += "<button onclick='toggleAllRelays(false)' class='off'>Apagar Todos</button>";
+  html += "</div>";
+
   html += "<script>";
   html += "function toggleRelay(relay) {";
-  html += "fetch('/toggle?relay=' + relay);"; // Se agrega un parámetro para el número del relé
-  html += "setTimeout(() => location.reload(), 500);";  // Refrescar la página al cambiar el estado
-  html += "}</script>";
+  html += "fetch('/toggle?relay=' + relay);";
+  html += "setTimeout(() => location.reload(), 500);";
+  html += "}";
+  
+  html += "function toggleAllRelays(state) {";
+  html += "fetch('/toggleAll?state=' + state);";
+  html += "setTimeout(() => location.reload(), 500);";
+  html += "}";
+  html += "</script>";
 
   html += "</body></html>";
   return html;
@@ -80,6 +116,8 @@ String getHTML() {
 
 // Maneja la página principal
 void handleRoot() {
+  temperature = dht.readTemperature();  // Leer temperatura
+  humidity = dht.readHumidity();        // Leer humedad
   server.send(200, "text/html", getHTML());
 }
 
@@ -87,15 +125,29 @@ void handleRoot() {
 void handleToggleRelay() {
   if (server.hasArg("relay")) {
     int relay = server.arg("relay").toInt();
-    if (relay >= 0 && relay < 8) {
-      relayStates[relay] = !relayStates[relay];  // Cambiar el estado del relé
-      digitalWrite(relayPins[relay], relayStates[relay] ? LOW : HIGH); // LOW enciende los relés de low level trigger
-    }
+    relayStates[relay] = !relayStates[relay];
+    digitalWrite(relayPins[relay], relayStates[relay] ? LOW : HIGH);  // Invertir el estado de los relés
+    Serial.println("Relé " + String(relay) + " " + (relayStates[relay] ? "encendido" : "apagado"));
   }
-  server.send(200, "text/plain", "OK");
+  server.sendHeader("Location", "/");
+  server.send(303);
 }
 
-// Maneja la configuración de la hora de encendido y apagado
+// Maneja el encendido/apagado de todos los relés
+void handleToggleAllRelays() {
+  if (server.hasArg("state")) {
+    bool state = server.arg("state") == "true";
+    for (int i = 0; i < 8; i++) {
+      relayStates[i] = state;
+      digitalWrite(relayPins[i], state ? LOW : HIGH);  // Invertir el estado de los relés
+    }
+    Serial.println(state ? "Todos los relés encendidos" : "Todos los relés apagados");
+  }
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
+
+// Maneja la configuración de horarios
 void handleSetTime() {
   if (server.hasArg("hourOn")) {
     hourOn = server.arg("hourOn").toInt();
@@ -120,46 +172,42 @@ void handleSetTime() {
 }
 
 void setup() {
-  // Inicia la comunicación serial
-  Serial.begin(115200);  // Asegúrate de que el Monitor Serial esté configurado a 115200 baudios
-
-  // Configuración de los pines
-  for (int i = 0; i < 8; i++) {
-    pinMode(relayPins[i], OUTPUT);
-    digitalWrite(relayPins[i], HIGH); // Inicialmente apagados (relés desactivados con HIGH)
-  }
+  Serial.begin(115200);
+  dht.begin();
 
   // Conexión Wi-Fi
-  Serial.println("Conectando a Wi-Fi...");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
     Serial.print(".");
   }
   Serial.println("Conectado a Wi-Fi");
-  Serial.print("IP: ");
-  Serial.println(WiFi.localIP());
 
-  // Inicializar NTPClient
+  // Inicializar NTP
   timeClient.begin();
-  Serial.println("NTPClient iniciado");
 
   // Configuración del servidor web
   server.on("/", handleRoot);  // Página principal
   server.on("/toggle", handleToggleRelay);  // Control manual de relés
   server.on("/setTime", handleSetTime);  // Manejo de la configuración de la hora
+
   server.begin();
 }
 
 void loop() {
+
   // Actualizar hora
   timeClient.update();
   int currentHour = timeClient.getHours();
   int currentMinute = timeClient.getMinutes();
   int currentSecond = timeClient.getSeconds(); // Obtener los segundos actuales
 
-  // Ajuste de hora para zona horaria de Ciudad de México (UTC -6)
-  currentHour = (currentHour - 6) % 24; 
+
+  // Verificar los horarios de encendido/apagado y controlar los relés
+  int currentHour = hour();
+  int currentMinute = minute();
+  int currentSecond = second();
+
 
   // Verificar si es el segundo exacto 00
   if (currentSecond == 0) {
@@ -181,5 +229,5 @@ void loop() {
     }
   }
 
-  server.handleClient();
+  server.handleClient(); // Manejar las solicitudes del servidor
 }
