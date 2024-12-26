@@ -40,7 +40,7 @@ float temperature = 0;
 // Página HTML con formulario para cambiar horarios
 String getHTML() {
   String html = "<!DOCTYPE html><html lang='es'><head>";
-  html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";  
   html += "<title>Panel de Control luminaria Col. Vallejo</title>";
   html += "<style>";
   html += "body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background-image: url('../img/lldm_vallejo_iluminado.jpg'); background-size: cover; background-position: center; background-repeat: no-repeat; height: 100vh; margin: 0; color: #333; }";
@@ -149,26 +149,14 @@ void handleToggleAllRelays() {
 
 // Maneja la configuración de horarios
 void handleSetTime() {
-  if (server.hasArg("hourOn")) {
-    hourOn = server.arg("hourOn").toInt();
-  }
-  if (server.hasArg("minuteOn")) {
-    minuteOn = server.arg("minuteOn").toInt();
-  }
-  if (server.hasArg("secondOn")) {
-    secondOn = server.arg("secondOn").toInt();
-  }
-  if (server.hasArg("hourOff")) {
-    hourOff = server.arg("hourOff").toInt();
-  }
-  if (server.hasArg("minuteOff")) {
-    minuteOff = server.arg("minuteOff").toInt();
-  }
-  if (server.hasArg("secondOff")) {
-    secondOff = server.arg("secondOff").toInt();
-  }
-  
-  server.send(200, "text/html", "<h2>Horarios actualizados. <a href='/'>Regresar</a></h2>");
+  if (server.hasArg("hourOn")) hourOn = server.arg("hourOn").toInt();
+  if (server.hasArg("minuteOn")) minuteOn = server.arg("minuteOn").toInt();
+  if (server.hasArg("secondOn")) secondOn = server.arg("secondOn").toInt();
+  if (server.hasArg("hourOff")) hourOff = server.arg("hourOff").toInt();
+  if (server.hasArg("minuteOff")) minuteOff = server.arg("minuteOff").toInt();
+  if (server.hasArg("secondOff")) secondOff = server.arg("secondOff").toInt();
+  server.sendHeader("Location", "/");
+  server.send(303);
 }
 
 void setup() {
@@ -186,47 +174,45 @@ void setup() {
   // Inicializar NTP
   timeClient.begin();
 
-  // Configuración del servidor web
-  server.on("/", handleRoot);  // Página principal
-  server.on("/toggle", handleToggleRelay);  // Control manual de relés
-  server.on("/setTime", handleSetTime);  // Manejo de la configuración de la hora
+  // Configurar los pines de los relés como salidas
+  for (int i = 0; i < 8; i++) {
+    pinMode(relayPins[i], OUTPUT);
+    digitalWrite(relayPins[i], HIGH);  // Relés apagados por defecto (suponiendo que son activos bajos)
+  }
 
+  // Inicializar servidor web
+  server.on("/", handleRoot);
+  server.on("/toggle", handleToggleRelay);
+  server.on("/toggleAll", handleToggleAllRelays);
+  server.on("/setTime", handleSetTime);
   server.begin();
 }
 
 void loop() {
-
-  // Actualizar hora
-  timeClient.update();
-  int currentHour = timeClient.getHours();
-  int currentMinute = timeClient.getMinutes();
-  int currentSecond = timeClient.getSeconds(); // Obtener los segundos actuales
-
+  timeClient.update();  // Actualizar la hora desde el NTP
+  setTime(timeClient.getEpochTime()); // Establecer la hora en TimeLib
 
   // Verificar los horarios de encendido/apagado y controlar los relés
   int currentHour = hour();
   int currentMinute = minute();
   int currentSecond = second();
 
-
-  // Verificar si es el segundo exacto 00
-  if (currentSecond == 0) {
-    // Controla los relés según la hora configurada
-    if (currentHour == hourOn && currentMinute == minuteOn && currentSecond == secondOn) {
-      for (int i = 0; i < 8; i++) {
-        if (!relayStates[i]) {  // Si el relé está apagado, encenderlo
-          relayStates[i] = true;
-          digitalWrite(relayPins[i], LOW); 
-        }
-      }
-    } else if (currentHour == hourOff && currentMinute == minuteOff && currentSecond == secondOff) {
-      for (int i = 0; i < 8; i++) {
-        if (relayStates[i]) {  // Si el relé está encendido, apagarlo
-          relayStates[i] = false;
-          digitalWrite(relayPins[i], HIGH);
-        }
-      }
+  // Encender los relés si la hora actual coincide con la hora de encendido
+  if (currentHour == hourOn && currentMinute == minuteOn && currentSecond == secondOn) {
+    for (int i = 0; i < 8; i++) {
+      relayStates[i] = true;
+      digitalWrite(relayPins[i], LOW); // Enciende todos los relés
     }
+    Serial.println("Todos los relés encendidos");
+  }
+
+  // Apagar los relés si la hora actual coincide con la hora de apagado
+  if (currentHour == hourOff && currentMinute == minuteOff && currentSecond == secondOff) {
+    for (int i = 0; i < 8; i++) {
+      relayStates[i] = false;
+      digitalWrite(relayPins[i], HIGH); // Apaga todos los relés
+    }
+    Serial.println("Todos los relés apagados");
   }
 
   server.handleClient(); // Manejar las solicitudes del servidor
